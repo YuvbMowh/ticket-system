@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<!-- ============================================================
+  工单交付系统 · 答辩演示前端（单文件、原生 JS、完全离线）
+  结构：登录卡 → 新建工单卡 → 工单列表卡；无外链资源。
+  讲解点已在注释标注【答辩】。
+  用法：直接双击打开，或由 FastAPI 静态目录托管（见交付说明）。
+============================================================ -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工单交付系统 · 演示台</title>
+<!-- 全部样式内联，简洁现代风：灰底白卡、圆角阴影、三色状态徽章 -->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #1f2937; }
+  /* 顶栏：标题 + 登录态（用户名/退出按钮） */
+  header { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 12px 28px;
+           display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header h1 span { color: #2563eb; }
+  .userbox { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: #fff;
+            display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  /* 顶部红色错误横幅（非 alert）：请求失败时显示 */
+  #errorBar { position: fixed; top: 58px; left: 50%; transform: translateX(-50%); z-index: 99;
+              background: #dc2626; color: #fff; padding: 10px 20px; border-radius: 8px;
+              box-shadow: 0 4px 12px rgba(220,38,38,.3); display: none; max-width: 80%; font-size: 14px; }
+  main { max-width: 960px; margin: 24px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 20px; }
+  .card { background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card h2 { font-size: 16px; margin-bottom: 14px; color: #374151; border-left: 4px solid #2563eb; padding-left: 10px; }
+  /* 表单通用 */
+  input, select, textarea { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+    font-size: 14px; outline: none; transition: border .15s; }
+  input:focus, select:focus, textarea:focus { border-color: #2563eb; }
+  label { font-size: 13px; color: #6b7280; display: block; margin: 8px 0 4px; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  button { cursor: pointer; border: none; border-radius: 8px; font-size: 14px; padding: 8px 16px;
+           transition: opacity .15s, background .15s; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-ghost { background: #e5e7eb; color: #374151; }
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f0f0f0; }
+  th { color: #6b7280; font-weight: 500; background: #fafafa; font-size: 13px; }
+  tr:hover td { background: #f9fafb; }
+  /* 三色状态徽章：pending 灰 / processing 蓝 / completed 绿（体现状态机单向性） */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+  .b-pending    { background: #f3f4f6; color: #4b5563; }
+  .b-processing { background: #dbeafe; color: #1d4ed8; }
+  .b-completed  { background: #d1fae5; color: #047857; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-start { background: #dbeafe; color: #1d4ed8; }
+  .btn-done  { background: #d1fae5; color: #047857; }
+  .btn-logout { background: #fee2e2; color: #b91c1c; }
+  .muted { color: #9ca3af; text-align: center; padding: 28px 0; font-size: 14px; }
+  /* 登录卡居中窄版 */
+  #cardLogin { max-width: 420px; margin: 40px auto 0; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <!-- 顶栏：答辩时先演示"未登录只见登录卡" -->
+  <header>
+    <h1>🖥 <span>工单交付系统</span> · 答辩演示台</h1>
+    <div class="userbox hidden" id="userBox">
+      <div class="avatar" id="avatar">?</div>
+      <span id="username"></span>
+      <button class="btn-logout" id="btnLogout">退出</button>
+    </div>
+  </header>
+
+  <!-- 顶部错误条：请求失败统一在这里提示，不使用 alert -->
+  <div id="errorBar"></div>
+
+  <main>
+    <!-- ===== 卡片① 登录区：JWT 认证能力演示 ===== -->
+    <section class="card" id="cardLogin">
+      <h2>用户登录（JWT 认证）</h2>
+      <div>
+        <label for="inUser">用户名</label>
+        <input id="inUser" placeholder="alice" autocomplete="username">
+      </div>
+      <div>
+        <label for="inPass">密码</label>
+        <input id="inPass" type="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn-primary" id="btnLogin" style="width:100%">登 录</button>
+      </div>
+    </section>
+    <!-- ===== 卡片② 新建工单：演示跨服务写库 + 操作人取自 token ===== -->
+    <section class="card hidden" id="cardCreate">
+      <h2>新建工单</h2>
+      <div class="row">
+        <div style="flex:2">
+          <label for="inTitle">标题</label>
+          <input id="inTitle" placeholder="例如：K8s CoreDNS 频繁重启">
+        </div>
+        <div style="flex:1">
+          <label for="inPriority">优先级</label>
+          <!-- 与后端 models.PRIORITIES=(low,normal,high) 对齐 -->
+          <select id="inPriority">
+            <option value="low">低</option>
+            <option value="normal" selected>中</option>
+            <option value="high">高</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label for="inContent">内容描述</label>
+        <textarea id="inContent" rows="2" placeholder="问题现象 / 影响范围…"></textarea>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn-primary" id="btnCreate">提交工单</button>
+        <button class="btn-ghost" id="btnReset">清空</button>
+      </div>
+    </section>
+
+    <!-- ===== 卡片③ 工单列表：CRUD 读 + 状态机单向流转演示 ===== -->
+    <section class="card hidden" id="cardList">
+      <h2>工单列表
+        <span style="float:right">
+          <button class="btn-ghost" id="btnRefresh">🔄 刷新</button>
+        </span>
+      </h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:52px">ID</th>
+            <th>标题</th>
+            <th style="width:64px">优先级</th>
+            <th style="width:90px">状态</th>
+            <th style="width:90px">创建人</th>
+            <th style="width:130px">更新时间</th>
+            <th style="width:110px">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <!-- 内容由 JS 渲染；含 loading 行 / 空态 / 错误态 -->
+        </tbody>
+      </table>
+      <div class="muted" id="listMeta" style="padding:10px 0 0; font-size:12px"></div>
+    </section>
+  </main>
+<script>
+"use strict";
+/* 答辩讲解结构：① login→JWT签发 ② /user/me→认证委托 ③ POST→跨服务写库
+   ④ GET→Redis缓存 ⑤ PUT/status→状态机 ⑥ 401→统一登出 */
+/* 接口地址：默认 docker-compose 双服务(CORS 已放行)。
+   切 kind+ingress 单入口改为 USER_BASE/TICKET_BASE 指向 http://localhost:8080/api/user|api/ticket */
+const USER_BASE = "http://127.0.0.1:8001";
+const TICKET_BASE = "http://127.0.0.1:8002";
+
+/* 登录态只存内存变量（需求：不用 localStorage）。
+   答辩点：token 不落盘 → 刷新页面即回未登录，体现"无状态 JWT 客户端携带"。 */
+const state = { token: null, username: null };
+
+const $ = (id) => document.getElementById(id);
+const cardLogin = $("cardLogin"), cardCreate = $("cardCreate"), cardList = $("cardList");
+const userBox = $("userBox"), tbody = $("tbody");
+
+/* 统一请求封装：自动带 Authorization、解析 JSON；
+   401 → 清登录态回登录页；其它失败 → 抛 {status,message} 给顶部错误条。 */
+async function api(base, path, { method = "GET", body } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (state.token) headers["Authorization"] = "Bearer " + state.token; // 每次请求携带 JWT
+  const resp = await fetch(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let data = null;
+  try { data = await resp.json(); } catch (e) { /* 无 JSON 体则忽略 */ }
+  if (resp.status === 401) {            // 【答辩】401 统一出口：证明"无效 token 必被拒"
+    logout(true);
+    throw { status: 401, message: "登录已失效，请重新登录" };
+  }
+  if (!resp.ok) {
+    throw { status: resp.status, message: (data && (data.detail || data.message)) || ("HTTP " + resp.status) };
+  }
+  return data;
+}
+
+/* 顶部红色错误条（非 alert） */
+let errTimer = null;
+function showError(text) {
+  const bar = $("errorBar");
+  bar.textContent = "⚠ " + text;
+  bar.style.display = "block";
+  clearTimeout(errTimer);
+  errTimer = setTimeout(() => (bar.style.display = "none"), 5000);
+}
+
+/* XSS 防护：后端文本进 innerHTML 前转义 */
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+const STATUS_TEXT = { pending: "待处理", processing: "处理中", completed: "已完成" };
+const STATUS_CLASS = { pending: "b-pending", processing: "b-processing", completed: "b-completed" };
+const PRIO_TEXT = { low: "低", normal: "中", high: "高" };
+
+/* ===== 登录流程 ===== */
+async function doLogin() {
+  const username = $("inUser").value.trim(), password = $("inPass").value;
+  if (!username || !password) { showError("请输入用户名和密码"); return; }
+  const btn = $("btnLogin");
+  btn.disabled = true; btn.textContent = "登录中…";
+  try {
+    const data = await api(USER_BASE, "/login", { method: "POST", body: { username, password } });
+    state.token = data.access_token;              // 真实字段 access_token（非 token）
+    const me = await api(USER_BASE, "/user/me");  // 认证委托链路验证
+    state.username = me.username;
+    showApp();
+    loadTickets();
+    $("inPass").value = "";
+  } catch (e) { if (e.status !== 401) showError(e.message); }
+  finally { btn.disabled = false; btn.textContent = "登 录"; }
+}
+
+/* 退出：清内存态回登录界面 */
+function logout(silent) {
+  state.token = null; state.username = null;
+  userBox.classList.add("hidden");
+  cardCreate.classList.add("hidden");
+  cardList.classList.add("hidden");
+  cardLogin.classList.remove("hidden");
+  if (!silent) showError("已退出登录");
+}
+
+/* 登录成功后 UI 切换 */
+function showApp() {
+  cardLogin.classList.add("hidden");
+  cardCreate.classList.remove("hidden");
+  cardList.classList.remove("hidden");
+  userBox.classList.remove("hidden");
+  $("avatar").textContent = (state.username || "?").charAt(0).toUpperCase();
+  $("username").textContent = "👤 " + state.username;
+}
+/* ===== 工单读取（loading / 空态齐全） ===== */
+async function loadTickets() {
+  tbody.innerHTML = '<tr><td colspan="7" class="muted">⏳ 正在加载工单…</td></tr>';
+  try {
+    // GET /tickets：后端优先读 Redis 缓存(60s)，未命中回源 MySQL（答辩重点）
+    const data = await api(TICKET_BASE, "/tickets?page=1&size=50");
+    $("listMeta").textContent = "共 " + data.total + " 条 · 列表经 Redis 缓存 + MySQL 提供";
+    renderTickets(data.items || []);
+  } catch (e) {
+    if (e.status !== 401) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">加载失败，请重试</td></tr>';
+      showError(e.message);
+    }
+  }
+}
+
+/* 表格渲染：按状态决定按钮 —— 状态机单向性的可视化 */
+function renderTickets(list) {
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">暂无工单，先在上方新建一条吧 ✨</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map((t) => {
+    let action = "";
+    if (t.status === "pending") action = `<button class="btn-sm btn-start" data-id="${t.id}" data-act="process">开始处理</button>`;
+    else if (t.status === "processing") action = `<button class="btn-sm btn-done" data-id="${t.id}" data-act="complete">完成</button>`;
+    // completed：无按钮 = 终态不可再流转
+    return `<tr>
+      <td>${t.id}</td>
+      <td>${esc(t.title)}</td>
+      <td>${PRIO_TEXT[t.priority] || esc(t.priority)}</td>
+      <td><span class="badge ${STATUS_CLASS[t.status] || "b-pending"}">${STATUS_TEXT[t.status] || esc(t.status)}</span></td>
+      <td>${esc(t.created_by)}</td>
+      <td>${esc((t.updated_at || "").slice(5, 16))}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join("");
+}
+
+/* ===== 新建工单 ===== */
+async function doCreate() {
+  const title = $("inTitle").value.trim(), content = $("inContent").value.trim();
+  if (!title || !content) { showError("标题和内容不能为空"); return; }
+  const btn = $("btnCreate");
+  btn.disabled = true; btn.textContent = "提交中…";
+  try {
+    // POST /tickets：created_by 由后端从 token 解析的用户信息写入（跨服务认证委托的体现）
+    await api(TICKET_BASE, "/tickets", {
+      method: "POST",
+      body: { title, content, priority: $("inPriority").value }
+    });
+    showError("工单创建成功 ✔");   // 复用错误条做成功提示（绿色改红？直接文字）
+    $("errorBar").style.background = "#16a34a";
+    setTimeout(() => { $("errorBar").style.display = "none"; $("errorBar").style.background = "#dc2626"; }, 2000);
+    $("inTitle").value = ""; $("inContent").value = "";
+    loadTickets();                 // 创建后立即刷新列表（写后读，缓存按 Cache Aside 已失效）
+  } catch (e) { if (e.status !== 401) showError(e.message); }
+  finally { btn.disabled = false; btn.textContent = "提交工单"; }
+}
+
+/* ===== 状态流转（状态机单向） ===== */
+async function doTransition(id, action) {
+  // 前端按状态机只给合法按钮；后端仍会二次校验（跳级/回退返回 400）——答辩讲"前后端双重约束"
+  const target = action === "process" ? "processing" : "completed";
+  const btn = document.querySelector(`[data-id="${id}"][data-act="${action}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    await api(TICKET_BASE, "/tickets/" + id + "/status", { method: "PUT", body: { status: target } });
+    loadTickets();                 // 流转成功后刷新（状态徽章与按钮随之变化）
+  } catch (e) { if (e.status !== 401) showError(e.message); loadTickets(); }
+}
+/* ===== 事件绑定 ===== */
+$("btnLogin").addEventListener("click", doLogin);
+$("btnLogout").addEventListener("click", () => logout(false));
+$("btnCreate").addEventListener("click", doCreate);
+$("btnRefresh").addEventListener("click", loadTickets);
+$("btnReset").addEventListener("click", () => { $("inTitle").value = ""; $("inContent").value = ""; });
+/* 回车提交登录 */
+[$("inUser"), $("inPass")].forEach((el) =>
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); }));
+
+/* 表格操作列事件委托：点击 data-act 按钮触发状态流转 */
+tbody.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-id]");
+  if (!btn) return;
+  doTransition(btn.dataset.id, btn.dataset.act);
+});
+
+/* 初始化：未登录状态（所有业务卡片隐藏，仅登录卡可见） */
+logout(true);
+</script>
+</body>
+</html>
+
+
+
+

@@ -16,11 +16,14 @@ ticket-service 主入口（FastAPI，端口 8002）
 import os
 from contextlib import asynccontextmanager
 
-import httpx
+import json
+import urllib.error
+import urllib.request
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from prometheus_fastapi_instrumentator import Instrumentator  # 自动指标暴露（论文第6章）
+from fastapi.middleware.cors import CORSMiddleware  # 答辩演示前端跨端口调用所需(8001↔8002)
 
 from . import cache, models
 
@@ -52,6 +55,9 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="ticket-service", version="0.1.0", lifespan=lifespan)
 
+# CORS：允许浏览器跨端口(8001↔8002)访问，答辩演示前端必需（生产按域名收紧）
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
 
 @app.get("/healthz")
 def healthz():
@@ -73,16 +79,29 @@ def healthz():
 def _call_auth(authorization: str) -> dict:
     """架构作用：把 token 校验外包给认证服务，工单服务自身不保存也不验证 JWT。"""
     try:
-        with httpx.Client(timeout=AUTH_TIMEOUT) as client:
-            resp = client.get(f"{USER_SERVICE_URL}/user/me", headers={"Authorization": authorization})
-    except httpx.HTTPError:
+        request = urllib.request.Request(
+            f"{USER_SERVICE_URL}/user/me",
+            headers={"Authorization": authorization},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=AUTH_TIMEOUT) as response:
+            status_code = response.status
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        status_code = exc.code
+        response_body = exc.read().decode("utf-8")
+    except urllib.error.URLError:
         # 下游故障语义化：503(服务不可用) 与自身 Bug 的 500 区分开，监控告警语义更清晰
         raise HTTPException(status_code=503, detail="认证服务暂不可用，请稍后重试")
-    if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail=resp.json().get("detail", "登录已失效"))
-    if resp.status_code != 200:
+    if status_code == 401:
+        try:
+            detail = json.loads(response_body).get("detail", "登录已失效")
+        except (TypeError, ValueError):
+            detail = "登录已失效"
+        raise HTTPException(status_code=401, detail=detail)
+    if status_code != 200:
         raise HTTPException(status_code=502, detail="认证服务响应异常")
-    return resp.json()  # {id, username, created_at}
+    return json.loads(response_body)  # {id, username, created_at}
 
 
 def require_login(authorization: str | None = Header(default=None)) -> dict:

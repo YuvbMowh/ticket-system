@@ -29,6 +29,9 @@ COPY --from=builder /install /usr/local
 
 # 业务代码最后拷入：改动最频繁，放最后可最大化命中 Docker 层缓存
 COPY app ./app
+# 静态演示前端（单文件 index.html，FastAPI 兜底托管）
+COPY static ./static
+
 
 # 非 root + 冗余裁剪（alpine 用 adduser，slim 用 useradd —— 面试可讲两个发行版的差异）
 RUN adduser -D -u 10001 -s /sbin/nologin appuser \

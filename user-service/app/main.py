@@ -20,6 +20,7 @@ import jwt
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from fastapi.middleware.cors import CORSMiddleware  # 答辩演示前端跨端口调用所需(8001↔8002)
 from prometheus_fastapi_instrumentator import Instrumentator  # 自动指标暴露（论文第6章）
 
 from . import cache, models
@@ -49,6 +50,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="user-service", version="0.1.0", lifespan=lifespan)
+
+# CORS：允许浏览器跨端口(8001↔8002)访问，答辩演示前端必需（生产按域名收紧）
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/healthz")
@@ -175,4 +179,14 @@ Instrumentator(
     should_group_status_codes=False,   # 保留原始状态码(200/500...)，供 5xx 错误率告警按 "5.." 统计
     should_ignore_untemplated=True,
 ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
+
+# ==================== 静态前端托管（答辩演示：单页入口） ====================
+# 把 index.html 放到 <服务根>/static/ 后，浏览器访问 http://127.0.0.1:8001/ 即出演示页。
+# 必须放在所有 API 路由之后 mount：Starlette 按注册顺序匹配，先注册的 /login 等路由优先命中。
+from fastapi.staticfiles import StaticFiles
+
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static")
+app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
+
 
