@@ -1,0 +1,36 @@
+# Redis Deployment：缓存属于"无状态可重建"组件，用 Deployment 即可
+# 设计取舍：缓存数据丢失可从 MySQL 回源重建，无需 PVC 持久化（与 MySQL 形成对照，答辩可讲）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: ticket-system
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5

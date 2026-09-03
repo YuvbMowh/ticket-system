@@ -1,0 +1,32 @@
+# 集群入口 Ingress（第5章"集群入口设计"）
+# 前置条件：minikube addons enable ingress（nginx-ingress-controller）
+# 路由规则：/api/user/* → user-service，/api/ticket/* → ticket-service
+# rewrite-target: /$2 —— 后端路由不含 /api 前缀，Ingress 负责剥前缀转发
+#   /api/user/register      → user-service   /register
+#   /api/ticket/tickets     → ticket-service /tickets
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ticket-system-ingress
+  namespace: ticket-system
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api/user(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: user-service
+                port:
+                  number: 8001
+          - path: /api/ticket(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ticket-service
+                port:
+                  number: 8002

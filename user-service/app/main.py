@@ -49,6 +49,22 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="user-service", version="0.1.0", lifespan=lifespan)
 
 
+@app.get("/healthz")
+def healthz():
+    """
+    健康检查端点（K8s livenessProbe / readinessProbe 共用）。
+    架构作用：K8s 判断 Pod 是否存活/就绪的唯一依据（对应第5章探针配置）。
+
+    设计说明：这里只做进程级存活检查（返回 200 即代表 uvicorn 可正常服务）。
+    为什么不把 MySQL/Redis 连通性检查放进 /healthz：
+    - liveness 探针语义是"进程是否卡死/需重启"，必须宽松，否则 DB 抖动会导致 Pod 被无限重启；
+    - 依赖检查应放在 readiness（生产上通常拆一个 /readyz），DB 故障时只摘流量、不杀 Pod。
+    【面试预警】liveness 要"宽松保命"，readiness 才适合"检查依赖决定是否引流"。
+    """
+    return {"status": "ok"}
+
+
+
 # ---------- 认证工具函数 ----------
 def _hash_password(raw: str) -> str:
     """bcrypt 加盐哈希：bcrypt 自动生成随机盐，同密码不同用户密文也不同。"""

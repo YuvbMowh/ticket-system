@@ -45,7 +45,7 @@ services:
       DB_PASSWORD: root123456
       DB_NAME: user_db               # 微服务数据隔离：user 库
       REDIS_HOST: redis
-      JWT_SECRET: dev-secret-for-local   # 本地固定密钥；生产由 K8s Secret 提供
+      JWT_SECRET: local-dev-only-jwt-secret-key-0123456789abcdef   # >=32字节，消除 HMAC 弱密钥告警；生产由 K8s Secret 提供
     ports:
       - "8001:8001"
     depends_on:

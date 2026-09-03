@@ -1,0 +1,57 @@
+# ticket-service Deployment（2 副本）
+# 注意：ticket-service 不注入 app-secret(JWT)——它不做本地验签，认证委托给 user-service，
+#       体现"最小权限"：拿不到就不需要（与 docker-compose 行为一致）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket-service
+  namespace: ticket-system
+  labels:
+    app: ticket-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ticket-service
+  template:
+    metadata:
+      labels:
+        app: ticket-service
+    spec:
+      containers:
+        - name: ticket-service
+          image: ticket-service:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8002
+          envFrom:
+            - configMapRef:
+                name: app-config            # 含 USER_SERVICE_URL=http://user-service:8001
+            - secretRef:
+                name: mysql-secret          # DB_USER / DB_PASSWORD
+          env:
+            - name: DB_NAME
+              value: ticket_db              # 数据隔离：ticket-service 只访问 ticket_db
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2

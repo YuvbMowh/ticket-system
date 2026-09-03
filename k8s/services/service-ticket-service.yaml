@@ -1,0 +1,14 @@
+# ticket-service Service（ClusterIP）
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket-service
+  namespace: ticket-system
+spec:
+  selector:
+    app: ticket-service
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+  type: ClusterIP

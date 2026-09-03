@@ -1,18 +1,50 @@
-# user-service 镜像（开发版：单阶段，保证 compose 本地先跑通）
-# 注意：阶段2（容器化章节）将升级为"多阶段构建"，目标镜像体积 <200MB，届时直接重写本文件。
-FROM python:3.11-slim
+# ============================================================
+# user-service 镜像 —— 多阶段构建（论文第5章"容器化"）
+# 目标：最终镜像 <200MB；非 root 运行（容器安全基线）
+# 体积策略（V2，实测 slim 版 318MB 超标后的优化）：
+#   1) 基础镜像 slim → alpine：省约 90MB（本项目依赖均有 musllinux wheel，无需编译）；
+#   2) 去掉 uvicorn[standard]：省 uvloop/httptools/watchfiles 约 20MB，
+#      并发能力由 K8s 副本数保证，容器内不需要异步加速；
+#   3) 裁冗余：pip/setuptools、SQLAlchemy 非 MySQL 方言。
+# ============================================================
+
+# ---------- 阶段1：builder（构建专用，产物最终丢弃） ----------
+FROM python:3.11-alpine AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+# --prefix=/install：依赖统一安装到 /install，下一阶段整体 COPY 即可
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---------- 阶段2：runtime（最终镜像，只留运行所需） ----------
+FROM python:3.11-alpine
 
 WORKDIR /app
-# 关闭字节码缓存与输出缓冲，日志可实时进 stdout（后续 K8s 采集容器日志依赖这一行为）
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PATH="/usr/local/bin:$PATH"
 
-# 先 COPY 依赖清单再装依赖：利用 Docker 层缓存，requirements.txt 不变时不会重复 pip install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 仅拷贝已安装好的依赖（/install/lib/python3.11/site-packages → /usr/local 对应路径）
+COPY --from=builder /install /usr/local
 
-# 再 COPY 业务代码（业务代码改动最频繁，放后面可最大化命中上面那层缓存）
+# 业务代码最后拷入：改动最频繁，放最后可最大化命中 Docker 层缓存
 COPY app ./app
 
+# 非 root + 冗余裁剪（alpine 用 adduser，slim 用 useradd —— 面试可讲两个发行版的差异）
+RUN adduser -D -u 10001 -s /sbin/nologin appuser \
+    && chown -R appuser:appuser /app \
+    && rm -rf /usr/local/lib/python3.11/site-packages/pip* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/setuptools* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/sqlite* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/oracle* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/mssql* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/firebird* \
+    && rm -rf /usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/sybase*
+USER appuser
+
 EXPOSE 8001
+# 单 worker：副本数交给 K8s Deployment 扩缩
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+
+

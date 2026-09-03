@@ -1,0 +1,17 @@
+# MySQL Headless Service（clusterIP: None）
+# 为什么 Headless：StatefulSet 要求稳定的网络标识"pod名.服务名"，
+# Headless 不做负载均衡、直接暴露 Pod DNS，是 StatefulSet 的配套要求。
+# 本毕设单副本，但保留 Headless 语义以便论文讲解"有状态应用在 K8s 的部署模式"。
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: ticket-system
+spec:
+  clusterIP: None
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306

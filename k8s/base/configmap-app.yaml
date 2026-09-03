@@ -1,0 +1,19 @@
+# ConfigMap：两个微服务的"非敏感共享配置"
+# 三段式：是什么(非敏感键值配置) → 为什么需要(镜像内写死地址=环境耦合) →
+# 在本项目怎么用(Deployment 通过 envFrom 注入，镜像零改动即可在 compose/K8s 间切换)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: ticket-system
+data:
+  # 中间件地址全部指向 K8s 集群内 Service DNS（Service 名即主机名），与 docker-compose 内网命名一致
+  DB_HOST: "mysql"                     # mysql Headless Service 名
+  DB_PORT: "3306"
+  REDIS_HOST: "redis"                  # redis Service 名
+  REDIS_PORT: "6379"
+  USER_SERVICE_URL: "http://user-service:8001"   # 认证委托地址（仅 ticket-service 使用）
+  AUTH_TIMEOUT: "3.0"
+  CACHE_TTL_USER: "3600"
+  CACHE_TTL_TICKETS: "60"
+  TOKEN_TTL_SECONDS: "7200"

@@ -1,6 +1,6 @@
 # ticket-service 运行依赖（比 user-service 多 httpx：用于调用认证服务完成服务间通信）
 fastapi>=0.110,<1.0
-uvicorn[standard]>=0.29
+uvicorn>=0.29,<1.0        # 纯 Python 版（去 [standard] extra：省 uvloop/httptools/watchfiles，控镜像体积 <200MB）
 SQLAlchemy>=2.0,<3.0
 PyMySQL>=1.1
 cryptography>=42.0        # PyMySQL 连接 MySQL8 默认认证插件 caching_sha2_password 所需

@@ -1,0 +1,64 @@
+# MySQL StatefulSet：唯一有状态的业务组件
+# 关键点：数据通过 volumeClaimTemplates 声明 PVC（动态供给），Pod 重建数据不丢；
+#         与 Deployment 的本质差异详见论文第5章文字段（StatefulSet vs Deployment）。
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: ticket-system
+spec:
+  serviceName: mysql          # 关联上面的 Headless Service，Pod 获得稳定 DNS
+  replicas: 1                 # 演示环境单副本；高可用演进可扩副本+主从复制
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            initialDelaySeconds: 20   # MySQL 首次初始化较慢，探针需容忍
+            periodSeconds: 10
+            timeoutSeconds: 5
+  # PVC 模板：StatefulSet 自动为每个副本生成 <模板名>-<pod名> 的 PVC
+  # storageClassName: standard = minikube 默认(hostpath)；k3s 请改 local-path
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 5Gi

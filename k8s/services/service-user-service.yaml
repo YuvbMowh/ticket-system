@@ -1,0 +1,15 @@
+# user-service Service（ClusterIP）：集群内服务发现入口
+# 作用：Deployment 的 Pod 会漂移重建，Service 提供固定 DNS 与负载均衡，屏蔽后端变化
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: ticket-system
+spec:
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+  type: ClusterIP

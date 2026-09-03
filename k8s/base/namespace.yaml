@@ -1,0 +1,8 @@
+# Namespace：本毕设所有 K8s 资源统一归属 ticket-system
+# 架构作用：K8s 多租户隔离的最小单元（第5章），便于统一配额、RBAC、资源回收
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ticket-system
+  labels:
+    app.kubernetes.io/part-of: ticket-system

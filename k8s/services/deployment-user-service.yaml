@@ -1,0 +1,61 @@
+# user-service Deployment（2 副本）
+# 高可用语义：副本分布在不同 Worker（论文"单 Master 多 Worker"），
+# 单 Pod 故障时 ReplicaSet 自动重建，滚动更新支持零停机发布
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: ticket-system
+  labels:
+    app: user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: user-service:v1.0.0        # minikube 本地同名 tag；CI 发布时替换为镜像仓库地址
+          imagePullPolicy: IfNotPresent      # 本地已有则直接使用，避免 ImagePullBackOff
+          ports:
+            - name: http
+              containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: app-config            # DB_HOST/REDIS_HOST 等共享配置
+            - secretRef:
+                name: app-secret            # JWT_SECRET
+            - secretRef:
+                name: mysql-secret          # DB_USER / DB_PASSWORD
+          env:
+            - name: DB_NAME
+              value: user_db                # 数据隔离：user-service 只访问 user_db
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # liveness：进程级"活着吗"——宽松，防死锁/卡死自动重启
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # readiness：就绪才收流量——依赖检查可加在这里（生产拆 /readyz）
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
