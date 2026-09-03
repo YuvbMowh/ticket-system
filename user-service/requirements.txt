@@ -7,4 +7,6 @@ cryptography>=42.0        # PyMySQL 连接 MySQL8 默认认证插件 caching_sha
 bcrypt>=4.1               # 密码加盐哈希
 PyJWT>=2.8                # 签发/校验 access_token
 redis>=5.0                # Redis 缓存客户端
+prometheus-fastapi-instrumentator>=7.0,<8.0   # 自动暴露 /metrics（论文第6章监控接入）
+
 

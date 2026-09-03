@@ -36,3 +36,19 @@
 第6章 监控告警与性能测试 / 第7章 总结与展望
 
 确认理解后，回复"上下文已建立"，并列出你认为我需要提前准备的环境清单。
+
+## 运行环境状态（2026-09-03 更新：后续任务的默认环境约定）
+
+- **K8s 环境：kind 集群 v1.36.1，2 节点（1 control-plane + 1 worker）**，运行于 Docker Desktop（已开启 **containerd image store**）；kubectl 客户端 v1.36.1 与集群版本一致
+- **镜像投递方式**：`kind load docker-image <服务>:<tag>`（kind 不用 `eval $(minikube docker-env)`，注意与 Docker Desktop 本机镜像隔离）
+- **kind 默认无 StorageClass**：部署 `k8s/mysql/statefulset-mysql.yaml` 前需装 local-path-provisioner，并把 `storageClassName` 由 `standard`（minikube 口径）改为 `local-path`：
+  ```
+  kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.24/deploy/local-path-storage.yaml
+  ```
+- **Ingress**：kind 需要手动装 ingress-nginx（provider/kind），非 minikube addons：
+  ```
+  kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+  ```
+- **端口访问**：集群内服务用 `kubectl port-forward`（kind 没有 minikube tunnel）
+- 论文口径维持"单 Master 多 Worker"；本机 Docker compose 的 MySQL/Redis（root123456，宿主 3306/6379）仍可用作中间件冒烟验证
+

@@ -1,0 +1,24 @@
+# ServiceMonitor：告诉 Prometheus"去抓谁"（论文第6章：业务指标接入）
+# 是什么：prometheus-operator 的 CRD，声明一组待抓取的 Service 端点；
+# 为什么需要：Prometheus 默认只抓自己，靠 ServiceMonitor 声明"targets"实现自动服务发现；
+# 在本项目怎么用：匹配 ticket-system 命名空间下 selector 为 app=user-service 的 Service，
+#               Prometheus 会按 15s 周期拉取 http 端口上的 /metrics。
+# 注意：metadata.namespace 放 monitoring（kube-prometheus-stack 默认只 watch 本命名空间），
+#       label release=kube-prometheus-stack 是 Prometheus 的 serviceMonitorSelector 匹配依据。
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: user-service
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: user-service            # 与 k8s/services/service-user-service.yaml 的 selector 一致
+  namespaceSelector:
+    matchNames: ["ticket-system"] # 跨命名空间抓取
+  endpoints:
+    - port: http                  # Service 中名为 http 的端口
+      path: /metrics
+      interval: 15s               # 抓取周期（论文压测章节会提到对抓取频率的影响）

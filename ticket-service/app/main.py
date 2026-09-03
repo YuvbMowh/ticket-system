@@ -20,6 +20,8 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from prometheus_fastapi_instrumentator import Instrumentator  # 自动指标暴露（论文第6章）
+
 from . import cache, models
 
 # ---------- 配置 ----------
@@ -157,4 +159,13 @@ def update_status(ticket_id: int, body: StatusUpdate,
         return ticket.to_dict()
     finally:
         session.close()
+
+
+# ==================== Prometheus 指标暴露（论文第6章监控接入） ====================
+# 与 user-service 相同：instrumentator 提供 /metrics（QPS/P95/CPU/内存 + 5xx 错误率告警的数据源）。
+Instrumentator(
+    should_group_status_codes=False,   # 保留原始状态码，供 5xx 错误率告警按 "5.." 统计
+    should_ignore_untemplated=True,
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
 

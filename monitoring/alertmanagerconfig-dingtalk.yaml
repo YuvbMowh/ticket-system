@@ -1,0 +1,30 @@
+# AlertmanagerConfig：把告警路由到钉钉（论文第6章：告警链路）
+# 链路：Prometheus 命中 PrometheusRule → Alert 进入 Alertmanager →
+#       本 CRD 的路由规则匹配 → receiver 转发给 prometheus-webhook-dingtalk 桥接服务 →
+#       桥接服务把 Alertmanager JSON 翻译成钉钉机器人要求的 {msgtype,text} 格式 → 钉钉群消息
+# 说明：Alertmanager 原生 webhook 的 JSON 结构与钉钉不兼容，必须经桥接转换（社区标准做法）。
+apiVersion: monitoring.coreos.com/v1
+kind: AlertmanagerConfig
+metadata:
+  name: dingtalk
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  route:
+    groupBy: ["alertname"]        # 相同告警名聚合，避免刷屏
+    groupWait: 30s                # 组内首批告警等待 30s（合并抖动）
+    groupInterval: 5m
+    repeatInterval: 4h            # 未恢复的告警每 4h 重复提醒一次
+    receiver: dingtalk-webhook
+    matchers:
+      - name: severity
+        matchType: "=~"
+        value: "warning|critical" # 本系统两条 warning 一条 critical，全部转发
+  receivers:
+    - name: dingtalk-webhook
+      webhookConfigs:
+        # 指向 monitoring 命名空间内的钉钉桥接服务（见 deployment-dingtalk.yaml）
+        # 路径 /dingtalk/webhook1/send 与桥接服务 config.yaml 中 profile 名 webhook1 对应
+        - url: http://prometheus-webhook-dingtalk:8060/dingtalk/webhook1/send
+          sendResolved: true      # 告警恢复时也通知（论文演示"恢复闭环"）

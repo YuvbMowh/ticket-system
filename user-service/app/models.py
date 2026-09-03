@@ -5,6 +5,7 @@ user-service 数据模型层（对应论文第4章"用户服务数据库设计"�
 """
 import os
 from datetime import datetime
+from urllib.parse import quote_plus
 
 import pymysql
 from sqlalchemy import Column, DateTime, Integer, String, create_engine
@@ -51,9 +52,14 @@ def _get_engine():
         # pool_pre_ping=True：取连接前先 ping，MySQL 重启/断连后不会把"死连接"发给业务
         #（这是面试常问的"MySQL 连接池关键参数"之一，也是故障演练剧本3的伏笔）
         _engine = create_engine(
-            f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
+            # 实战教训：密码含 @ 等特殊字符时必须 URL 编码（quote_plus），
+            # 否则 "Root@123456@mysql" 中的 @ 会让解析器把 host 误判成 "123456@mysql"，
+            # 报错 Can't connect ... on '123456@mysql'（见故障演练记录）
+            f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
+            f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
             pool_pre_ping=True, pool_recycle=3600, pool_size=5, max_overflow=10,
         )
+
     return _engine
 
 

@@ -1,0 +1,18 @@
+# ServiceMonitor：ticket-service 的指标抓取声明（与 user-service 完全同构）
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ticket-service
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: ticket-service
+  namespaceSelector:
+    matchNames: ["ticket-system"]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

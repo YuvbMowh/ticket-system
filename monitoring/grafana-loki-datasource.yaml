@@ -1,0 +1,21 @@
+# Grafana Loki 数据源（自动 provision）
+# kube-prometheus-stack 的 grafana 内置 datasource sidecar：
+# 凡带 grafana_datasource: "1" 标签的 ConfigMap 都会被自动加载为数据源
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource-loki
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  loki-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.monitoring:3100
+        isDefault: false
+        jsonData:
+          maxLines: 1000

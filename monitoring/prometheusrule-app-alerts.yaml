@@ -1,0 +1,69 @@
+# PrometheusRule：3 条告警规则（论文第6章：告警规则设计）
+# 数据来源说明：
+#   - kube_pod_container_status_restarts_total ← kube-state-metrics（helm 安装时自带）
+#   - node_memory_*                            ← node-exporter（自带）
+#   - http_requests_total                      ← 两个微服务的 /metrics（instrumentator）
+# Prometheus 按规则周期求值，命中即产生 Alert；for 字段表示"持续多久才算数"，避免瞬时抖动误报。
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ticket-system-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: ticket-system-app
+      rules:
+        # ---------------- 规则1：Pod 频繁重启 ----------------
+        - alert: PodFrequentRestart
+          # 5 分钟内重启次数增量 > 3
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="ticket-system"
+            }[5m]) > 3
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod 频繁重启：{{ $labels.pod }}"
+            description: >
+              命名空间 {{ $labels.namespace }} 的 Pod {{ $labels.pod }}
+              容器 {{ $labels.container }} 在 5 分钟内重启 {{ $value }} 次（阈值 3）。
+              当前值={{ $value }}。处理建议：kubectl logs {{ $labels.pod }} --previous -n {{ $labels.namespace }}
+              查看崩溃前日志，定位 CrashLoopBackOff 根因。
+
+        # ---------------- 规则2：服务 5xx 错误率超标 ----------------
+        - alert: High5xxErrorRate
+          # 5xx 请求占比 > 5%（clamp_min 防"分母为 0"除零）
+          expr: |
+            sum(rate(http_requests_total{status=~"5.."}[2m]))
+              by (namespace, service, job)
+            /
+            clamp_min(
+              sum(rate(http_requests_total[2m])) by (namespace, service, job), 1
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "服务 5xx 错误率超标：{{ $labels.service }}"
+            description: >
+              服务 {{ $labels.service }}（{{ $labels.namespace }}）5xx 错误率已达
+              {{ $value | humanizePercentage }}（阈值 5%），持续 2 分钟。
+              当前值={{ $value | humanizePercentage }}。处理建议：查看该服务日志定位 5xx 来源
+              （如下游 user-service 不可用导致的 503），参考故障排查手册第 8 节。
+
+        # ---------------- 规则3：节点内存使用率过高 ----------------
+        - alert: NodeMemoryUsageHigh
+          expr: |
+            (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "节点内存使用率过高：{{ $labels.instance }}"
+            description: >
+              节点 {{ $labels.instance }} 内存使用率达 {{ $value | humanizePercentage }}
+              （阈值 85%，持续 5 分钟）。当前值={{ $value | humanizePercentage }}。
+              处理建议：kubectl top nodes / kubectl top pods -A 定位高占用 Pod，
+              扩容节点或调整 Deployment 的 memory limits（参考第5章资源配额）。

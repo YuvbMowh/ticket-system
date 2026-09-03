@@ -9,6 +9,7 @@ ticket-service 数据模型层（对应论文第4章"工单服务数据库设计
 """
 import os
 from datetime import datetime
+from urllib.parse import quote_plus
 
 import pymysql
 from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine
@@ -80,9 +81,14 @@ def _get_engine():
     if _engine is None:
         # pool_pre_ping：取连接前先探测，MySQL 重启后不把死连接发给业务（故障演练伏笔）
         _engine = create_engine(
-            f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
+            # 实战教训：密码含 @ 等特殊字符时必须 URL 编码（quote_plus），
+            # 否则 "Root@123456@mysql" 中的 @ 会让解析器把 host 误判成 "123456@mysql"，
+            # 报错 Can't connect ... on '123456@mysql'（见故障演练记录）
+            f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}"
+            f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
             pool_pre_ping=True, pool_recycle=3600, pool_size=5, max_overflow=10,
         )
+
     return _engine
 
 

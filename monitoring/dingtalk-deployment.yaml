@@ -1,0 +1,46 @@
+# 钉钉告警桥接服务（社区标准：timonwong/prometheus-webhook-dingtalk）
+# 作用：把 Alertmanager 的 webhook JSON 翻译成钉钉自定义机器人要求的 payload 格式。
+# 部署：读取 Secret 挂载的 config.yaml（内含钉钉 webhook url + token）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-webhook-dingtalk
+  namespace: monitoring
+  labels:
+    app: prometheus-webhook-dingtalk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-webhook-dingtalk
+  template:
+    metadata:
+      labels:
+        app: prometheus-webhook-dingtalk
+    spec:
+      containers:
+        - name: dingtalk
+          image: timonwong/prometheus-webhook-dingtalk:v2.3.0
+          ports:
+            - containerPort: 8060
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus-webhook-dingtalk
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8060
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          secret:
+            secretName: dingtalk-secret

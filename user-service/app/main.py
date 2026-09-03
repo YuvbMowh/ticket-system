@@ -20,6 +20,8 @@ import jwt
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from prometheus_fastapi_instrumentator import Instrumentator  # 自动指标暴露（论文第6章）
+
 from . import cache, models
 
 # ---------- 认证参数（环境变量注入：docker-compose / K8s 各自配置） ----------
@@ -160,3 +162,17 @@ def me(authorization: str | None = Header(default=None)):
         return data
     finally:
         session.close()
+
+
+# ==================== Prometheus 指标暴露（论文第6章监控接入） ====================
+# 是什么：prometheus-fastapi-instrumentator 自动为 FastAPI 生成指标并在 /metrics 暴露。
+# 为什么：Prometheus 是"拉取(pull)模式"——按 job 定时抓取 /metrics 文本，应用只需被动暴露；
+#         默认指标含 http_requests_total(method/status) 与 http_request_duration_seconds(直方图)，
+#         prometheus-client 还自动附带 process_* 进程指标(CPU/内存)，足以支撑 QPS/P95/CPU/内存 面板。
+# 怎么用：monitoring/servicemonitor-user-service.yaml 让 Prometheus 发现本服务并抓取。
+# 安全说明：/metrics 不暴露敏感业务数据；生产建议用 NetworkPolicy 限制仅 Prometheus 可达。
+Instrumentator(
+    should_group_status_codes=False,   # 保留原始状态码(200/500...)，供 5xx 错误率告警按 "5.." 统计
+    should_ignore_untemplated=True,
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+

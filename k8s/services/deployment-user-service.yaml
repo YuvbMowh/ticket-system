@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: user-service
-          image: user-service:v1.0.0        # minikube 本地同名 tag；CI 发布时替换为镜像仓库地址
+          image: user-service:v1.2.0          # v1.2.0 = 修复 DB 密码特殊字符 URL 编码 bug；CI 发布时替换为镜像仓库 sha tag
           imagePullPolicy: IfNotPresent      # 本地已有则直接使用，避免 ImagePullBackOff
           ports:
             - name: http
