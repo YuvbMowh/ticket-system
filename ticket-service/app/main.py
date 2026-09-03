@@ -27,6 +27,9 @@ from . import cache, models
 # ---------- 配置 ----------
 USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8001")  # 认证服务地址
 AUTH_TIMEOUT = float(os.getenv("AUTH_TIMEOUT", "3.0"))                     # 认证调用超时(秒)
+# 缓存开关（对比实验用）：kubectl set env deployment/ticket-service CACHE_ENABLED=false
+# 置 false 后列表读/写全部绕过 Redis，即"无缓存"档；true/缺省为生产缓存模式
+CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() in ("1", "true", "yes")
 
 
 # ---------- 请求体模型（Pydantic 校验，不合法自动 422） ----------
@@ -107,7 +110,8 @@ def create_ticket(body: TicketCreate, current_user: dict = Depends(require_login
         session.commit()
         session.refresh(ticket)
         # Cache Aside 写路径：先写库、后删缓存（删而非更新，避免并发写把缓存改成旧值）
-        cache.delete_by_pattern("tickets:list:*")
+        if CACHE_ENABLED:
+            cache.delete_by_pattern("tickets:list:*")
         return ticket.to_dict()
     finally:
         session.close()
@@ -119,9 +123,11 @@ def list_tickets(page: int = 1, size: int = 10, current_user: dict = Depends(req
     if page < 1 or size < 1 or size > 100:
         raise HTTPException(status_code=400, detail="page>=1 且 1<=size<=100")
     cache_key = f"tickets:list:{page}:{size}"   # key 设计：tickets:list:{page}:{size}
-    cached = cache.get_json(cache_key)          # Redis 故障时内部返回 None → 自动走数据库
-    if cached is not None:
-        return cached
+    # 对比实验开关：CACHE_ENABLED=false 时跳过读缓存，模拟"无缓存"部署档
+    if CACHE_ENABLED:
+        cached = cache.get_json(cache_key)      # Redis 故障时内部返回 None → 自动走数据库
+        if cached is not None:
+            return cached
     session = models.get_session()
     try:
         total = session.query(models.Ticket).count()
@@ -133,7 +139,8 @@ def list_tickets(page: int = 1, size: int = 10, current_user: dict = Depends(req
             .all()
         )
         data = {"total": total, "page": page, "size": size, "items": [t.to_dict() for t in rows]}
-        cache.set_json(cache_key, data, cache.CACHE_TTL_TICKETS)  # 回填缓存 60 秒
+        if CACHE_ENABLED:
+            cache.set_json(cache_key, data, cache.CACHE_TTL_TICKETS)  # 回填缓存 60 秒
         return data
     finally:
         session.close()
@@ -155,7 +162,8 @@ def update_status(ticket_id: int, body: StatusUpdate,
         ticket.status = target                    # updated_at 由 ORM onupdate 自动刷新
         session.commit()
         session.refresh(ticket)
-        cache.delete_by_pattern("tickets:list:*") # 状态是列表展示字段，写后必须失效缓存
+        if CACHE_ENABLED:
+            cache.delete_by_pattern("tickets:list:*") # 状态是列表展示字段，写后必须失效缓存
         return ticket.to_dict()
     finally:
         session.close()

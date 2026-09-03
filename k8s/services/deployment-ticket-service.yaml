@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: ticket-service
-          image: ticket-service:v1.2.0          # v1.2.0 = 修复 DB 密码特殊字符 URL 编码 bug；CI 发布时替换为镜像仓库 sha tag
+          image: ticket-service:v1.3.0          # v1.3.0 = 增加 CACHE_ENABLED 对比实验开关；CI 发布时替换为镜像仓库 sha tag
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
