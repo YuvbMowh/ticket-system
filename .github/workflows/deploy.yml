@@ -1,0 +1,128 @@
+# ============================================================
+# CI/CD Pipeline（论文第5章第二节）
+# 触发：push 到 main（或手动 dispatch，便于演示与失败重跑）
+# 链路：lint → docker build(git短sha + latest) → push ACR → SSH 登录云服务器 kubectl 滚动更新
+#
+# 前置要求（一次性，详见交付说明"服务器基线部署手册"）：
+#   1. 云服务器已安装 kubectl 且 kubeconfig 指向目标集群
+#   2. 集群内已用 k8s/ 清单完成首次基线部署（存在 deployment/user-service 等）
+#   3. GitHub 仓库配置以下 Secrets
+# ============================================================
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:              # 手动触发入口（写论文演示/失败重跑用）
+
+concurrency:
+  group: cicd-${{ github.ref }}   # 同一分支同一时间只跑一条流水线
+  cancel-in-progress: false       # 不取消进行中的发布（避免回滚语义混乱）
+
+env:
+  ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}     # 例：registry.cn-hangzhou.aliyuncs.com
+  ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}   # 例：ticket-demo（ACR 命名空间）
+
+jobs:
+  # ======================= Job1: CI =======================
+  ci:
+    name: lint & build & push
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [user-service, ticket-service]   # 两个服务并行，互不阻塞
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint (ruff)
+        run: |
+          python -m pip install --quiet ruff
+          cd ${{ matrix.service }}
+          # E9=语法错误类、F=未使用/未定义等真 Bug；
+          # 不启用 E501 等风格类规则（中文注释行长易误报，风格问题交给 pre-commit 阶段）
+          ruff check app --select E9,F
+
+      - name: Build docker image
+        run: |
+          IMAGE="${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/${{ matrix.service }}"
+          SHORT_SHA="${GITHUB_SHA::7}"           # 不可变 tag：git 短 sha
+          docker build \
+            -t "${IMAGE}:${SHORT_SHA}" \
+            -t "${IMAGE}:latest" \
+            ./${{ matrix.service }}
+
+      - name: Login ACR & push
+        run: |
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ env.ACR_REGISTRY }}" \
+            --username "${{ secrets.ACR_USERNAME }}" --password-stdin
+          IMAGE="${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/${{ matrix.service }}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          docker push "${IMAGE}:${SHORT_SHA}"
+          docker push "${IMAGE}:latest"
+
+  # ======================= Job2: CD =======================
+  deploy:
+    name: rolling update on production server
+    needs: ci                       # ci 全部矩阵分支成功后才会部署
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute short sha
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: SSH kubectl rolling update
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}           # 私钥内容（含换行，需完整粘贴）
+          port: ${{ secrets.SSH_PORT }}
+          # envs 声明要注入远程的变量名（值来自下方 env: 块）
+          envs: IMAGE_USER,IMAGE_TICKET,ACR_REGISTRY,ACR_USERNAME,ACR_PASSWORD
+          script: |
+            set -e
+            echo "===== [1/4] 确保 namespace 与私有仓库拉取凭证存在 ====="
+            kubectl get ns ticket-system >/dev/null 2>&1 || kubectl create ns ticket-system
+            kubectl create secret docker-registry regcred \
+              --docker-server="${ACR_REGISTRY}" \
+              --docker-username="${ACR_USERNAME}" \
+              --docker-password="${ACR_PASSWORD}" \
+              -n ticket-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+            echo "===== [2/4] 滚动更新：set image 到本次构建的不可变 sha tag ====="
+            # 若 deployment 尚未基线部署，提示后退出（防呆，避免掩盖真实错误）
+            kubectl get deployment user-service -n ticket-system >/dev/null 2>&1 || {
+              echo "!! 集群中不存在 deployment/user-service，请先完成一次性基线部署（见交付说明）"; exit 1; }
+            kubectl set image deployment/user-service \
+              user-service="${IMAGE_USER}" -n ticket-system
+            kubectl set image deployment/ticket-service \
+              ticket-service="${IMAGE_TICKET}" -n ticket-system
+
+            echo "===== [3/4] rollout status 等待上线完成(180s) ====="
+            kubectl rollout status deployment/user-service -n ticket-system --timeout=180s
+            kubectl rollout status deployment/ticket-service -n ticket-system --timeout=180s
+
+            echo "===== [4/4] 部署成功 ✓ ====="
+            kubectl -n ticket-system get pods -o wide
+        env:
+          IMAGE_USER: ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/user-service:${{ env.SHORT_SHA }}
+          IMAGE_TICKET: ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/ticket-service:${{ env.SHORT_SHA }}
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+
+      # rollout status 超时/失败时自动回滚到上一版本（与"不可变 tag"配套：undo 总能回到可运行版本）
+      - name: Auto rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            echo "!!!!!! 部署失败，自动回滚到上一版本 !!!!!!"
+            kubectl rollout undo deployment/user-service -n ticket-system || true
+            kubectl rollout undo deployment/ticket-service -n ticket-system || true
+            kubectl rollout status deployment/user-service -n ticket-system --timeout=120s || true
+            echo "手工兜底命令：kubectl rollout history deployment/user-service -n ticket-system"
