@@ -1,0 +1,24 @@
+# RBAC：允许 Prometheus 跨命名空间发现业务 Service（role=endpoints discovery 必需）
+# 背景：kube-prometheus-stack 默认只给 Prometheus 所在命名空间(monitoring)的读取权限，
+#       而我们的 ServiceMonitor 声明抓取 ticket-system 下的服务 → 需显式授权（最小权限：只读）
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-ticket-system-reader
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-ticket-system-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-kube-prometheus-stack-prometheus
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: prometheus-ticket-system-reader
+  apiGroup: rbac.authorization.k8s.io

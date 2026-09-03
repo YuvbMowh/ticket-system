@@ -3,7 +3,7 @@
 #       本 CRD 的路由规则匹配 → receiver 转发给 prometheus-webhook-dingtalk 桥接服务 →
 #       桥接服务把 Alertmanager JSON 翻译成钉钉机器人要求的 {msgtype,text} 格式 → 钉钉群消息
 # 说明：Alertmanager 原生 webhook 的 JSON 结构与钉钉不兼容，必须经桥接转换（社区标准做法）。
-apiVersion: monitoring.coreos.com/v1
+apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
 metadata:
   name: dingtalk

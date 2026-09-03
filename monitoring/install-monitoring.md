@@ -101,3 +101,23 @@ kubectl -n monitoring get alertmanagerconfig                  # 钉钉路由已�
 2. 本机暂无集群，上述命令在装好 minikube/k3s 后执行；
 3. 监控体系上线后，压测（阶段6）将产生真实指标与告警素材供论文使用。
 
+## 七、2026-09-03 实际安装验证实录（kind 环境，全链路通过）
+
+**安装结果**：kube-prometheus-stack（10 组件 Running）+ loki-stack（loki + promtail×2）均部署成功；业务 ServiceMonitor 抓取 user/ticket 各 2 个 target 全部 `up`；`http_requests_total` 可查询；三条业务规则加载，5xx 规则经"制造 503 流量"验证进入 `pending`（for 防抖生效）；Loki 可检索 `{namespace="ticket-system"}` 日志；Grafana 数据源含 Prometheus/Alertmanager/Loki。
+
+**五个避坑点（真实踩坑记录）**：
+
+1. **AlertmanagerConfig 的 CRD 版本是 `v1alpha1`**（新版 chart），YAML 用 `monitoring.coreos.com/v1` 会报 `no matches for kind`；本仓库 `alertmanagerconfig-dingtalk.yaml` 已改用 v1alpha1。
+2. **Service 必须带 `metadata.labels`**：Prometheus 的 `__meta_kubernetes_service_label_app` 来自 Service 的 metadata.labels（非 selector）——Service 缺 labels 会导致 relabel keep 全部丢弃、target 永远为空。`k8s/services/service-*.yaml` 已补 `labels.app`。
+3. **Prometheus 默认只授权 monitoring 命名空间**：跨命名空间抓取需新增 RBAC（本仓库 `monitoring/rbac-prometheus-cross-namespace.yaml`），否则 auth can-i 为 no、target 一直为空。
+4. **Docker Desktop 的 DaoCloud 镜像白名单**会拒绝非白名单镜像（如 `timonwong/prometheus-webhook-dingtalk`）：本地 kind 无法拉取钉钉桥接镜像，deployment 未启用（清单保留），AlertmanagerConfig 已就绪——在可拉取镜像的集群/网络环境 apply `dingtalk-deployment.yaml` 并替换 `dingtalk-secret.yaml` 的 token 即可接通钉钉。
+5. **Grafana datasource sidecar** 未自动加载我们提交的 Loki datasource ConfigMap（原因待查），本次以 Grafana API 手动创建兜底（效果一致）；ConfigMap 保留，chart 升级后可能自动生效。
+
+**验证命令备忘**：
+```bash
+kubectl get servicemonitor,prometheusrule,alertmanagerconfig -n monitoring
+curl -s localhost:19090/api/v1/targets | ...   # 业务 target up
+curl -s localhost:19090/api/v1/rules | ...     # 三条规则加载/状态
+```
+
+

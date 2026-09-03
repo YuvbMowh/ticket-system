@@ -5,6 +5,8 @@ kind: Service
 metadata:
   name: user-service
   namespace: ticket-system
+  labels:
+    app: user-service        # 供 Prometheus 服务发现(ServiceMonitor selector/relabel)使用
 spec:
   selector:
     app: user-service
