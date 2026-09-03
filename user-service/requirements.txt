@@ -1,0 +1,9 @@
+# user-service 运行依赖（镜像体积与构建速度的权衡点：全部选用带 wheel 的包，避免源码编译）
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29
+SQLAlchemy>=2.0,<3.0
+PyMySQL>=1.1
+cryptography>=42.0        # PyMySQL 连接 MySQL8 默认认证插件 caching_sha2_password 所需
+bcrypt>=4.1               # 密码加盐哈希
+PyJWT>=2.8                # 签发/校验 access_token
+redis>=5.0                # Redis 缓存客户端

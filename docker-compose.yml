@@ -1,0 +1,76 @@
+# docker-compose.yml —— 本地一键联调环境（对应论文第4章"本地开发与联调"与第5章拓扑的缩小版）
+# 组成：MySQL 8 + Redis 7 + user-service + ticket-service，共处一个默认网络，
+# 服务之间以 compose 服务名互访（mysql / redis / user-service），与 K8s 集群内 DNS 命名一致，
+# 因此同一份代码/配置未来可直接平移到 K8s 部署。
+#
+# 使用：docker compose up -d --build
+# 验证：docker compose ps 全部 healthy 后，按 README 中的 curl 顺序测试。
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ticket-mysql
+    environment:
+      # 仅本地开发口令；K8s 阶段由 Secret 注入（见 k8s/base/secret-mysql.yaml）
+      MYSQL_ROOT_PASSWORD: root123456
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql   # 数据卷持久化：容器重建不丢数据（K8s PVC 的本地对照版）
+    healthcheck:                    # 依赖方等待 healthy 才启动，避免应用抢跑连不上库
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -proot123456 --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    container_name: ticket-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: root123456
+      DB_NAME: user_db               # 微服务数据隔离：user 库
+      REDIS_HOST: redis
+      JWT_SECRET: dev-secret-for-local   # 本地固定密钥；生产由 K8s Secret 提供
+    ports:
+      - "8001:8001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ticket-service:
+    build: ./ticket-service
+    container_name: ticket-service
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: root123456
+      DB_NAME: ticket_db             # 微服务数据隔离：ticket 库
+      REDIS_HOST: redis
+      USER_SERVICE_URL: http://user-service:8001   # 认证委托：与 K8s 内 Service DNS 一致
+    ports:
+      - "8002:8002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql-data:                        # 具名卷，供 mysql 数据持久化
