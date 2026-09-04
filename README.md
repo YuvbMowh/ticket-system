@@ -78,13 +78,6 @@ kubectl apply -f k8s/base -f k8s/mysql -f k8s/redis -f k8s/services -f k8s/ingre
 - **监控告警**：三层指标 + 3 条告警规则 + 钉钉桥接 + Loki 日志
 - **故障演练**：ImagePullBackOff / CrashLoopBackOff / Service 不通 三案例沉淀排查手册
 
-## 论文与答辩
-
-- 毕业论文：`thesis/毕业论文.md`（7 章 + 参考文献 + 附录，数据以【数据：】【截图：】占位）
-- 答辩全流程：`thesis/答辩全流程.md`（PPT 结构 + 演示脚本 + 问答预案 + 应急预案）
-- 素材沉淀：`docs/`（k8s 设计、CI/CD、监控、压测、故障演练、第3/6/7章初稿）
-
-> `docs/`、`thesis/` 已在 `.gitignore` 中，论文/素材不入库，仅本地留存。
 
 ## License
 
